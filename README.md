@@ -24,3 +24,4 @@ A simple Task management API built with FastAPI, supporting full CRUD operations
 ## Swagger UI
 
 Interactive API documentation is available at `http://127.0.0.1:8000/docs`
+See the repository files for a screenshot of the working Swagger UI.
