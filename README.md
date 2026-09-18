@@ -1,34 +1,58 @@
-# Task API (CRUD)
+# Todo API
 
-A simple Task management API built with FastAPI, supporting full CRUD operations (Create, Read, Update, Delete) on an in-memory task list.
+A simple CRUD API for managing tasks, built with FastAPI and SQLModel, backed by a SQLite database.
 
-## How to Run
+This is the Week 3 version of the project: the same API from Assignment 1 now persists its data to disk instead of storing it in an in-memory list.
+
+## Why SQLite
+
+SQLite was chosen because it requires no separate database server or installation, it's just a single file on disk. That makes it perfect for learning how an API talks to a real database without extra setup. The same ideas (SQL queries, tables, rows) carry over directly if the project is later migrated to a bigger database like PostgreSQL.
+
+## Where the database file is stored
+
+The database lives in a single file, tasks.db, created automatically in the project's root folder the first time the app runs. It is not pushed to GitHub (see .gitignore).
+
+## How to start the project
 
 1. Install dependencies:
-2. Start the server:
-3. Open your browser at `http://127.0.0.1:8000`
+   pip install -r requirements.txt
 
-## Endpoints
+2. Run the server:
+   uvicorn main:app --reload
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | / | API info |
-| GET | /health | Health check |
-| GET | /tasks | Get all tasks |
-| GET | /tasks/{id} | Get one task |
-| POST | /tasks | Create a new task |
-| PUT | /tasks/{id} | Update a task |
-| DELETE | /tasks/{id} | Delete a task |
+3. Open your browser at http://127.0.0.1:8000/docs
 
-## Example curl output
-curl -i -X POST http://127.0.0.1:8000/tasks -H "Content-Type: application/json" -d "{"title": "Buy milk"}"
+On the first run, tasks.db and the tasks table are created automatically, and three example tasks are inserted. Restarting the server afterwards will not duplicate them or erase data, everything is stored on disk now.
 
-HTTP/1.1 201 Created
-content-type: application/json
+## API Endpoints
 
-{"id":4,"title":"Buy milk","done":false}
-## Swagger UI
+| Method | Endpoint      | Description                |
+|--------|---------------|-----------------------------|
+| GET    | /tasks        | List all tasks              |
+| GET    | /tasks/{id}   | Get a single task           |
+| POST   | /tasks        | Create a new task           |
+| PUT    | /tasks/{id}   | Update a task               |
+| DELETE | /tasks/{id}   | Delete a task                |
+| GET    | /stats        | Task statistics (extra)     |
 
-Interactive API documentation is available at `http://127.0.0.1:8000/docs`
+### Optional query parameters on GET /tasks
 
-See the repository files for a screenshot of the working Swagger UI.
+- ?search=milk : search tasks by title
+- ?done=true : filter by completion status
+- ?sort=title : sort tasks alphabetically
+
+## Example SQL query
+
+SELECT * FROM task WHERE done = 1;
+
+This returns every completed task, and the API's GET /tasks?done=true endpoint returns exactly the same rows.
+
+## Screenshot of the database viewer
+
+![Database screenshot](screenshot.png)
+
+## What changed from Assignment 1
+
+- The API's URLs, request bodies, and response shapes are unchanged.
+- Only the storage layer changed: an in-memory list became a SQLite table accessed through SQLModel.
+- Data now survives server restarts.
