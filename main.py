@@ -1,60 +1,141 @@
-from fastapi import FastAPI, HTTPException
+from datetime import datetime
+from typing import Optional
 
-app = FastAPI()
+from fastapi import FastAPI, HTTPException, Query
+from sqlmodel import SQLModel, Field, Session, create_engine, select, func
 
-@app.get("/")
-def home():
-    return {"name": "Task API", "version": "1.0"}
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+DATABASE_FILE = "tasks.db"
+DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
 
-tasks = [
-    {"id": 1, "title": "Buy milk", "done": False},
-    {"id": 2, "title": "Clean room", "done": False},
-    {"id": 3, "title": "Read book", "done": True}
-]
+engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+
+
+class Task(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    done: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TaskCreate(SQLModel):
+    title: Optional[str] = None
+    done: bool = False
+
+
+class TaskUpdate(SQLModel):
+    title: Optional[str] = None
+    done: Optional[bool] = None
+
+
+app = FastAPI(title="Todo API")
+
+
+@app.on_event("startup")
+def on_startup():
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        existing = session.exec(select(Task)).first()
+        if existing is None:
+            example_tasks = [
+                Task(title="Buy milk", done=False),
+                Task(title="Read chapter 3", done=False),
+                Task(title="Walk the dog", done=True),
+            ]
+            session.add_all(example_tasks)
+            session.commit()
+
 
 @app.get("/tasks")
-def get_tasks():
-    return tasks
+def get_tasks(
+    search: Optional[str] = Query(default=None),
+    done: Optional[bool] = Query(default=None),
+    sort: Optional[str] = Query(default=None),
+):
+    with Session(engine) as session:
+        statement = select(Task)
 
-@app.get("/tasks/{id}")
-def get_task(id: int):
-    for task in tasks:
-        if task["id"] == id:
-            return task
-    raise HTTPException(status_code=404, detail=f"Task {id} not found")
+        if search is not None:
+            statement = statement.where(Task.title.like(f"%{search}%"))
+
+        if done is not None:
+            statement = statement.where(Task.done == done)
+
+        if sort == "title":
+            statement = statement.order_by(Task.title)
+
+        tasks = session.exec(statement).all()
+        return tasks
+
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: int):
+    with Session(engine) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return task
+
 
 @app.post("/tasks", status_code=201)
-def create_task(task: dict):
-    title = task.get("title")
-    if not title:
+def create_task(task_in: TaskCreate):
+    if not task_in.title or not task_in.title.strip():
         raise HTTPException(status_code=400, detail="Title is required")
-    new_id = max([t["id"] for t in tasks], default=0) + 1
-    new_task = {"id": new_id, "title": title, "done": False}
-    tasks.append(new_task)
-    return new_task
 
-@app.put("/tasks/{id}")
-def update_task(id: int, updates: dict):
-    for task in tasks:
-        if task["id"] == id:
-            title = updates.get("title")
-            if title is not None and not title:
+    with Session(engine) as session:
+        task = Task(title=task_in.title.strip(), done=task_in.done)
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        return task
+
+
+@app.put("/tasks/{task_id}")
+def update_task(task_id: int, task_in: TaskUpdate):
+    with Session(engine) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        if task_in.title is not None:
+            if not task_in.title.strip():
                 raise HTTPException(status_code=400, detail="Title cannot be empty")
-            if title is not None:
-                task["title"] = title
-            if "done" in updates:
-                task["done"] = updates["done"]
-            return task
-    raise HTTPException(status_code=404, detail=f"Task {id} not found")
+            task.title = task_in.title.strip()
 
-@app.delete("/tasks/{id}", status_code=204)
-def delete_task(id: int):
-    for i, task in enumerate(tasks):
-        if task["id"] == id:
-            tasks.pop(i)
-            return
-    raise HTTPException(status_code=404, detail=f"Task {id} not found")
+        if task_in.done is not None:
+            task.done = task_in.done
+
+        task.updated_at = datetime.utcnow()
+
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        return task
+
+
+@app.delete("/tasks/{task_id}", status_code=200)
+def delete_task(task_id: int):
+    with Session(engine) as session:
+        task = session.get(Task, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        session.delete(task)
+        session.commit()
+        return {"message": "Task deleted"}
+
+
+@app.get("/stats")
+def get_stats():
+    with Session(engine) as session:
+        total = session.exec(select(func.count(Task.id))).one()
+        completed = session.exec(
+            select(func.count(Task.id)).where(Task.done == True)
+        ).one()
+        return {
+            "total_tasks": total,
+            "completed_tasks": completed,
+            "pending_tasks": total - completed,
+        }
