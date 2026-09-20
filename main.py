@@ -1,14 +1,18 @@
+import os
 from datetime import datetime
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from sqlmodel import SQLModel, Field, Session, create_engine, select, func
 
+load_dotenv()
 
-DATABASE_FILE = "tasks.db"
-DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///tasks.db")
 
-engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
+engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
 
 
 class Task(SQLModel, table=True):
