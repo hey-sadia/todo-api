@@ -3,8 +3,11 @@ from datetime import datetime
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends, Header
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, Session, create_engine, select, func
+from supabase import create_client, Client
 
 load_dotenv()
 
@@ -13,6 +16,13 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///tasks.db")
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
 engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 class Task(SQLModel, table=True):
@@ -31,6 +41,16 @@ class TaskCreate(SQLModel):
 class TaskUpdate(SQLModel):
     title: Optional[str] = None
     done: Optional[bool] = None
+
+
+class SignupRequest(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
 
 
 app = FastAPI(title="Todo API")
@@ -143,3 +163,82 @@ def get_stats():
             "completed_tasks": completed,
             "pending_tasks": total - completed,
         }
+
+
+@app.post("/auth/signup", status_code=201)
+def signup(payload: SignupRequest):
+    if not payload.email or not payload.password:
+        raise HTTPException(status_code=400, detail="email and password are required")
+
+    if supabase is None:
+        raise HTTPException(status_code=500, detail="Supabase is not configured")
+
+    try:
+        result = supabase.auth.sign_up(
+            {"email": payload.email, "password": payload.password}
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {"user": result.user}
+
+
+@app.post("/auth/login")
+def login(payload: SignupRequest):
+    if not payload.email or not payload.password:
+        raise HTTPException(status_code=400, detail="email and password are required")
+
+    if supabase is None:
+        raise HTTPException(status_code=500, detail="Supabase is not configured")
+
+    try:
+        result = supabase.auth.sign_in_with_password(
+            {"email": payload.email, "password": payload.password}
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    return {
+        "access_token": result.session.access_token,
+        "user": result.user
+    }
+
+@app.post("/auth/logout")
+def logout():
+    if supabase is None:
+        raise HTTPException(status_code=500, detail="Supabase is not configured")
+    supabase.auth.sign_out()
+    return {"message": "Logged out successfully"}
+
+
+@app.get("/public/info")
+def public_info():
+    return {"message": "This is a public endpoint. No login required."}
+
+
+security = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+
+    if supabase is None:
+        raise HTTPException(status_code=500, detail="Supabase is not configured")
+
+    try:
+        user_response = supabase.auth.get_user(token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    if not user_response or not user_response.user:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    return user_response.user
+
+@app.get("/protected/profile")
+def protected_profile(current_user=Depends(get_current_user)):
+    return {"id": current_user.id, "email": current_user.email}
+
+
+@app.get("/protected/dashboard")
+def protected_dashboard(current_user=Depends(get_current_user)):
+    return {"message": f"Welcome to your dashboard, {current_user.email}!"}
