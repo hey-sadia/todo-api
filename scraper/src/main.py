@@ -30,6 +30,7 @@ def fetch_page(url: str, cache_filename: str) -> str:
     if response.status_code != 200:
         raise Exception(f"Failed to fetch {url}: status code {response.status_code}")
 
+    response.encoding = "utf-8"
     html = response.text
 
     os.makedirs(CACHE_DIR, exist_ok=True)
