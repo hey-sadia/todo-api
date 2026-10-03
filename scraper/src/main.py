@@ -157,12 +157,7 @@ if __name__ == "__main__":
     started = datetime.now(timezone.utc)
     links = discover_book_links()
 
-    # Stage 5 test: add one bad URL on purpose
-    links.append((
-        "https://books.toscrape.com/catalogue/this-page-does-not-exist_999/index.html",
-        "https://books.toscrape.com/catalogue/page-1.html",
-    ))
-
+   
     records, fetch_errors = extract_all_books(links)
     valid, validation_errors = validate_books(records)
     all_errors = fetch_errors + validation_errors
