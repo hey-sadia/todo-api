@@ -7,17 +7,18 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 USER_AGENT = "FlyRankInternshipA9/1.0 (+https://github.com/hey-sadia/todo-api)"
 TIMEOUT = 10  # seconds
 DELAY = 0.5   # seconds between real requests
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "cache")
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 
-BASE_URL = "https://books.toscrape.com/catalogue/page-1.html"
+SITE = "https://books.toscrape.com/catalogue/"
 
 
-def fetch_page(url: str, cache_filename: str) -> str:
+def fetch_page(url, cache_filename):
     """Fetch a page, using a cached copy if we already have one."""
     cache_path = os.path.join(CACHE_DIR, cache_filename)
 
@@ -27,16 +28,14 @@ def fetch_page(url: str, cache_filename: str) -> str:
         print(f"CACHE HIT: {cache_filename} ({len(html)} bytes)")
         return html
 
-    headers = {"User-Agent": USER_AGENT}
-    response = requests.get(url, headers=headers, timeout=TIMEOUT)
-
+    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
     if response.status_code != 200:
-        raise Exception(f"Failed to fetch {url}: status code {response.status_code}")
+        raise Exception(f"status code {response.status_code}")
 
     response.encoding = "utf-8"
     html = response.text
 
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     with open(cache_path, "w", encoding="utf-8") as f:
         f.write(html)
 
@@ -46,78 +45,48 @@ def fetch_page(url: str, cache_filename: str) -> str:
 
 
 def discover_book_links():
-    """Visit the first 3 catalogue pages and collect all unique book URLs."""
-    all_links = []
-    current_url = BASE_URL
-    page_number = 1
-
-    while current_url and page_number <= 3:
-        cache_filename = f"catalogue-page-{page_number}.html"
-        html = fetch_page(current_url, cache_filename)
+    """Visit the first 3 catalogue pages, return unique (book_url, source_page)."""
+    found = []
+    seen = set()
+    pages = 0
+    for n in range(1, 4):
+        page_url = f"{SITE}page-{n}.html"
+        html = fetch_page(page_url, f"catalogue/page-{n}.html")
+        pages += 1
         soup = BeautifulSoup(html, "html.parser")
-
-        for article in soup.select("article.product_pod"):
-            a_tag = article.select_one("h3 a")
-            if a_tag and a_tag.get("href"):
-                absolute_url = urljoin(current_url, a_tag["href"])
-                all_links.append(absolute_url)
-
-        next_tag = soup.select_one("li.next a")
-        if next_tag and next_tag.get("href") and page_number < 3:
-            current_url = urljoin(current_url, next_tag["href"])
-            page_number += 1
-        else:
-            current_url = None
-
-    unique_links = list(dict.fromkeys(all_links))
-
-    print(f"catalogue_pages={page_number}")
-    print(f"discovered={len(all_links)}")
-    print(f"unique_urls={len(unique_links)}")
-
-    return unique_links
+        for a in soup.select("article.product_pod h3 a"):
+            book_url = urljoin(page_url, a["href"])
+            if book_url not in seen:
+                seen.add(book_url)
+                found.append((book_url, page_url))
+    print(f"catalogue_pages={pages} unique_urls={len(found)}")
+    return found
 
 
-def extract_book_record(book_url: str, source_page: str) -> dict:
-    """Fetch one book's detail page and pull out the raw fields."""
-    # Build a safe cache filename from the URL
-    safe_name = book_url.rstrip("/").split("/")[-2] + ".html"
-    cache_filename = os.path.join("books", safe_name)
-
-    full_cache_path = os.path.join(CACHE_DIR, cache_filename)
-    os.makedirs(os.path.dirname(full_cache_path), exist_ok=True)
-
-    html = fetch_page(book_url, cache_filename)
+def extract_book_record(url, source_page):
+    """Download one book page and pull out the raw fields."""
+    slug = url.rstrip("/").split("/")[-2]
+    html = fetch_page(url, f"books/{slug}.html")
     soup = BeautifulSoup(html, "html.parser")
 
-    product_main = soup.select_one("div.product_main")
+    title = soup.select_one("div.product_main h1").get_text(strip=True)
+    price_text = soup.select_one("p.price_color").get_text(strip=True)
+    availability_text = " ".join(
+        soup.select_one("p.availability").get_text().split()
+    )
+    rating_classes = soup.select_one("p.star-rating")["class"]
+    rating_text = [c for c in rating_classes if c != "star-rating"][0]
 
-    title = product_main.select_one("h1").get_text(strip=True) if product_main else None
+    description = ""
+    desc_box = soup.select_one("#product_description")
+    if desc_box:
+        p = desc_box.find_next_sibling("p")
+        if p:
+            description = p.get_text(strip=True)
 
-    price_tag = soup.select_one("p.price_color")
-    price_text = price_tag.get_text(strip=True) if price_tag else None
-
-    availability_tag = soup.select_one("p.instock.availability")
-    availability_text = availability_tag.get_text(strip=True) if availability_tag else None
-
-    rating_tag = soup.select_one("p.star-rating")
-    rating_text = None
-    if rating_tag:
-        classes = rating_tag.get("class", [])
-        for c in classes:
-            if c != "star-rating":
-                rating_text = c
-
-    description_heading = soup.select_one("#product_description")
-    description = None
-    if description_heading:
-        desc_tag = description_heading.find_next_sibling("p")
-        if desc_tag:
-            description = desc_tag.get_text(strip=True)
-
-    record = {
+    return {
         "title": title,
-        "product_url": book_url,
+        "product_url": url,
         "price_text": price_text,
         "availability_text": availability_text,
         "rating_text": rating_text,
@@ -125,18 +94,22 @@ def extract_book_record(book_url: str, source_page: str) -> dict:
         "source_page": source_page,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
-    return record
 
 
 def extract_all_books(book_links):
-    """Visit every book page and extract raw records."""
+    """Visit every book page. A failed page is logged, not fatal."""
     records = []
-    for link in book_links:
-        record = extract_book_record(link, source_page=BASE_URL)
-        records.append(record)
+    fetch_errors = []
+    for url, source_page in book_links:
+        try:
+            records.append(extract_book_record(url, source_page))
+        except Exception as e:
+            print(f"FAILED: {url} -> {e}")
+            fetch_errors.append({"product_url": url, "error": str(e)})
 
-    print(f"detail_pages={len(records)}")
-    return records
+    print(f"detail_pages={len(records)} failed={len(fetch_errors)}")
+    return records, fetch_errors
+
 
 class Book(BaseModel):
     title: str
@@ -149,7 +122,7 @@ class Book(BaseModel):
     fetched_at: str
 
 
-def parse_price(price_text: str) -> float:
+def parse_price(price_text):
     """Turn '£51.77' into 51.77"""
     match = re.search(r"\d+(?:\.\d+)?", price_text)
     if not match:
@@ -166,7 +139,7 @@ def validate_books(records):
             data = dict(record)
             data["price_gbp"] = parse_price(data.pop("price_text"))
             valid.append(Book(**data).model_dump())
-        except (ValueError, KeyError) as e:
+        except Exception as e:
             errors.append({
                 "product_url": record.get("product_url"),
                 "error": str(e),
@@ -175,15 +148,38 @@ def validate_books(records):
 
 
 def save_json(data, filename):
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "output")
-    os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, filename), "w", encoding="utf-8") as f:
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(os.path.join(OUTPUT_DIR, filename), "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+
 if __name__ == "__main__":
+    started = datetime.now(timezone.utc)
     links = discover_book_links()
-    records = extract_all_books(links)
-    valid, errors = validate_books(records)
+
+    # Stage 5 test: add one bad URL on purpose
+    links.append((
+        "https://books.toscrape.com/catalogue/this-page-does-not-exist_999/index.html",
+        "https://books.toscrape.com/catalogue/page-1.html",
+    ))
+
+    records, fetch_errors = extract_all_books(links)
+    valid, validation_errors = validate_books(records)
+    all_errors = fetch_errors + validation_errors
+
     save_json(valid, "books.json")
-    save_json(errors, "errors.json")
-    print(f"\nvalid={len(valid)} errors={len(errors)}")
+    save_json(all_errors, "errors.json")
+
+    finished = datetime.now(timezone.utc)
+    report = {
+        "started_at": started.isoformat(),
+        "finished_at": finished.isoformat(),
+        "duration_seconds": round((finished - started).total_seconds(), 2),
+        "urls_attempted": len(links),
+        "pages_fetched": len(records),
+        "fetch_failures": len(fetch_errors),
+        "records_valid": len(valid),
+        "records_invalid": len(validation_errors),
+    }
+    save_json(report, "run-report.json")
+    print(f"\nvalid={len(valid)} errors={len(all_errors)}")

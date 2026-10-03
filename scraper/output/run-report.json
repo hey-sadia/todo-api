@@ -1,0 +1,10 @@
+{
+  "started_at": "2026-10-03T17:19:06.919536+00:00",
+  "finished_at": "2026-10-03T17:19:14.416218+00:00",
+  "duration_seconds": 7.5,
+  "urls_attempted": 61,
+  "pages_fetched": 60,
+  "fetch_failures": 1,
+  "records_valid": 60,
+  "records_invalid": 0
+}
