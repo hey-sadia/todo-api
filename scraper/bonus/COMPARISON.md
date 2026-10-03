@@ -8,7 +8,7 @@ The AI code is in `bonus/ai_main.py`.
 |---|---|---|
 | Valid books | 60 | 59 |
 | Errors | 0 | 1 |
-| Run time (first run) | about 40 seconds | 106 seconds |
+| Run time (first run) | not measured | 106 seconds |
 | Cache file names | short slug from the URL | full URL turned into a file name |
 | Delay between requests | 0.5 seconds | 1 second |
 | Output folder | `output/` | current folder |
