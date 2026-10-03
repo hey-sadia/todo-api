@@ -1,0 +1,7 @@
+[
+  {
+    "product_url": "https://books.toscrape.com/catalogue/foolproof-preserving-a-guide-to-small-batch-jams-jellies-pickles-condiments-and-more-a-foolproof-guide-to-making-small-batch-jams-jellies-pickles-condiments-and-more_978/index.html",
+    "source_page": "https://books.toscrape.com/catalogue/page-2.html",
+    "error": "[Errno 2] No such file or directory: '.cache\\\\https___books_toscrape_com_catalogue_foolproof-preserving-a-guide-to-small-batch-jams-jellies-pickles-condiments-and-more-a-foolproof-guide-to-making-small-batch-jams-jellies-pickles-condiments-and-more_978_index_html.html'"
+  }
+]
