@@ -1,10 +1,13 @@
 import os
+import json
+import re
 import time
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from pydantic import BaseModel, ValidationError
 
 USER_AGENT = "FlyRankInternshipA9/1.0 (+https://github.com/hey-sadia/todo-api)"
 TIMEOUT = 10  # seconds
@@ -135,9 +138,52 @@ def extract_all_books(book_links):
     print(f"detail_pages={len(records)}")
     return records
 
+class Book(BaseModel):
+    title: str
+    product_url: str
+    price_gbp: float
+    availability_text: str
+    rating_text: str
+    description: str = ""
+    source_page: str
+    fetched_at: str
+
+
+def parse_price(price_text: str) -> float:
+    """Turn '£51.77' into 51.77"""
+    match = re.search(r"\d+(?:\.\d+)?", price_text)
+    if not match:
+        raise ValueError(f"Cannot parse price: {price_text!r}")
+    return float(match.group())
+
+
+def validate_books(records):
+    """Split records into valid books and errors."""
+    valid = []
+    errors = []
+    for record in records:
+        try:
+            data = dict(record)
+            data["price_gbp"] = parse_price(data.pop("price_text"))
+            valid.append(Book(**data).model_dump())
+        except (ValueError, KeyError) as e:
+            errors.append({
+                "product_url": record.get("product_url"),
+                "error": str(e),
+            })
+    return valid, errors
+
+
+def save_json(data, filename):
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "output")
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, filename), "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 if __name__ == "__main__":
     links = discover_book_links()
     records = extract_all_books(links)
-    print("\nSample record:")
-    print(records[0])
+    valid, errors = validate_books(records)
+    save_json(valid, "books.json")
+    save_json(errors, "errors.json")
+    print(f"\nvalid={len(valid)} errors={len(errors)}")
