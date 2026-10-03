@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 
 import requests
@@ -51,14 +52,12 @@ def discover_book_links():
         html = fetch_page(current_url, cache_filename)
         soup = BeautifulSoup(html, "html.parser")
 
-        # Collect book links on this page
         for article in soup.select("article.product_pod"):
             a_tag = article.select_one("h3 a")
             if a_tag and a_tag.get("href"):
                 absolute_url = urljoin(current_url, a_tag["href"])
                 all_links.append(absolute_url)
 
-        # Find the "next" link, if any
         next_tag = soup.select_one("li.next a")
         if next_tag and next_tag.get("href") and page_number < 3:
             current_url = urljoin(current_url, next_tag["href"])
@@ -66,7 +65,7 @@ def discover_book_links():
         else:
             current_url = None
 
-    unique_links = list(dict.fromkeys(all_links))  # remove duplicates, keep order
+    unique_links = list(dict.fromkeys(all_links))
 
     print(f"catalogue_pages={page_number}")
     print(f"discovered={len(all_links)}")
@@ -75,5 +74,69 @@ def discover_book_links():
     return unique_links
 
 
+def extract_book_record(book_url: str, source_page: str) -> dict:
+    """Fetch one book's detail page and pull out the raw fields."""
+    # Build a safe cache filename from the URL
+    safe_name = book_url.rstrip("/").split("/")[-2] + ".html"
+    cache_filename = os.path.join("books", safe_name)
+
+    full_cache_path = os.path.join(CACHE_DIR, cache_filename)
+    os.makedirs(os.path.dirname(full_cache_path), exist_ok=True)
+
+    html = fetch_page(book_url, cache_filename)
+    soup = BeautifulSoup(html, "html.parser")
+
+    product_main = soup.select_one("div.product_main")
+
+    title = product_main.select_one("h1").get_text(strip=True) if product_main else None
+
+    price_tag = soup.select_one("p.price_color")
+    price_text = price_tag.get_text(strip=True) if price_tag else None
+
+    availability_tag = soup.select_one("p.instock.availability")
+    availability_text = availability_tag.get_text(strip=True) if availability_tag else None
+
+    rating_tag = soup.select_one("p.star-rating")
+    rating_text = None
+    if rating_tag:
+        classes = rating_tag.get("class", [])
+        for c in classes:
+            if c != "star-rating":
+                rating_text = c
+
+    description_heading = soup.select_one("#product_description")
+    description = None
+    if description_heading:
+        desc_tag = description_heading.find_next_sibling("p")
+        if desc_tag:
+            description = desc_tag.get_text(strip=True)
+
+    record = {
+        "title": title,
+        "product_url": book_url,
+        "price_text": price_text,
+        "availability_text": availability_text,
+        "rating_text": rating_text,
+        "description": description,
+        "source_page": source_page,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return record
+
+
+def extract_all_books(book_links):
+    """Visit every book page and extract raw records."""
+    records = []
+    for link in book_links:
+        record = extract_book_record(link, source_page=BASE_URL)
+        records.append(record)
+
+    print(f"detail_pages={len(records)}")
+    return records
+
+
 if __name__ == "__main__":
     links = discover_book_links()
+    records = extract_all_books(links)
+    print("\nSample record:")
+    print(records[0])
