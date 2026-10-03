@@ -48,3 +48,10 @@ After the test, I removed the fake URL from the code.
 
 - Some book descriptions contain repeated text. This comes from the website's own data, not from a bug in the scraper.
 - Only the first 3 catalogue pages are scraped, by design.
+
+
+## Bonus: Comparison with an AI-written scraper
+
+I gave the same task to an AI and compared its result with mine. The AI code, its output files and my notes are in the [`bonus/`](bonus/) folder. Read the full comparison in [`bonus/COMPARISON.md`](bonus/COMPARISON.md).
+
+Short version: my scraper got 60 valid books and 0 errors. The AI scraper got 59 valid books and 1 error, because it made a cache file name from a very long URL and Windows could not save it.
